@@ -1,202 +1,91 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SCOOP OPBR | خدمة تطوير بونتي راش</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Firebase SDKs -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-
-        // --- Configuration ---
-        const firebaseConfig = JSON.parse(__firebase_config);
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-        const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1395038941110866010/MucgrT_399C44lfUVL79HcqR4cfwNbJlL5iG1qPmxdBF47GGbTbmkokZK6YnslmJ63wL";
-        const VODAFONE_CASH_NUMBER = "010XXXXXXXX";
-
-        // --- Data ---
-        const CHARACTERS = [
-            { id: "001", name: "مونكي دي لوفي", stars: 2, price: 30, img: "https://static.wikia.nocookie.net/onepiece/images/a/af/Luffy_Bounty_Rush.png" },
-            { id: "002", name: "رورونوا زورو", stars: 2, price: 30, img: "https://static.wikia.nocookie.net/onepiece/images/b/b4/Zoro_Bounty_Rush.png" },
-            { id: "EX1", name: "إيس وياماتو", stars: 4, price: 80, img: "https://static.wikia.nocookie.net/onepiece/images/f/f5/Ace_and_Yamato_Bounty_Rush.png" },
-            { id: "EX2", name: "غول دي روجر", stars: 4, price: 80, img: "https://static.wikia.nocookie.net/onepiece/images/b/b3/Gol_D._Roger_Bounty_Rush.png" },
-            { id: "EX3", name: "إس-سنيك", stars: 4, price: 80, img: "https://static.wikia.nocookie.net/onepiece/images/a/a6/S-Snake_Bounty_Rush.png" }
-        ];
-
-        let currentUser = null;
-        let selectedChars = [];
-
-        // --- App Logic ---
-        window.initApp = async () => {
-            // Auth Logic (Rule 3)
-            try {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
-            } catch (err) {
-                console.error("Auth error:", err);
-            }
-
-            onAuthStateChanged(auth, (user) => {
-                currentUser = user;
-                if (user) listenToOrders();
-            });
-
-            renderCharacters();
-        };
-
-        const renderCharacters = () => {
-            const container = document.getElementById('char-grid');
-            container.innerHTML = CHARACTERS.map(char => `
-                <div onclick="toggleChar('${char.id}')" id="char-${char.id}" class="bg-slate-900 border-2 border-white/5 p-4 rounded-[2rem] cursor-pointer transition-all hover:border-white/20 group">
-                    <div class="aspect-square bg-slate-800 rounded-2xl mb-4 overflow-hidden">
-                        <img src="${char.img}" class="w-full h-full object-contain group-hover:scale-110 transition-transform">
-                    </div>
-                    <h3 class="font-black text-lg">${char.name}</h3>
-                    <div class="flex justify-between mt-2">
-                        <span class="text-xs text-slate-500">${char.stars} نجوم</span>
-                        <span class="text-red-500 font-black">${char.price} ج.م</span>
-                    </div>
-                </div>
-            `).join('');
-        };
-
-        window.toggleChar = (id) => {
-            const char = CHARACTERS.find(c => c.id === id);
-            const index = selectedChars.findIndex(c => c.id === id);
-            const el = document.getElementById(`char-${id}`);
-
-            if (index > -1) {
-                selectedChars.splice(index, 1);
-                el.classList.remove('border-red-600', 'bg-red-600/5');
-            } else {
-                selectedChars.push(char);
-                el.classList.add('border-red-600', 'bg-red-600/5');
-            }
-            updateSummary();
-        };
-
-        const updateSummary = () => {
-            const total = selectedChars.reduce((sum, c) => sum + c.price, 0);
-            document.getElementById('total-price').innerText = total;
-            document.getElementById('order-btn').disabled = selectedChars.length === 0 || !document.getElementById('phone-input').value;
-        };
-
-        window.submitOrder = async () => {
-            if (!currentUser) return;
-            const phone = document.getElementById('phone-input').value;
-            const total = selectedChars.reduce((sum, c) => sum + c.price, 0);
-
-            const orderData = {
-                userId: currentUser.uid,
-                phone,
-                characters: selectedChars,
-                totalPrice: total,
-                status: 'pending',
-                createdAt: serverTimestamp()
-            };
-
-            try {
-                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), orderData);
-                // Send Discord
-                fetch(DISCORD_WEBHOOK_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ content: `🚀 طلب جديد بقيمة ${total} ج.م من ${phone}` })
-                });
-            } catch (err) {
-                console.error("Order error:", err);
-            }
-        };
-
-        const listenToOrders = () => {
-            const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), orderBy('createdAt', 'asc'));
-            onSnapshot(q, (snap) => {
-                const orders = snap.docs.map(d => ({id: d.id, ...d.data()}));
-                const active = orders.filter(o => o.status !== 'completed');
-                const myOrder = active.find(o => o.userId === currentUser.uid);
-                
-                if (myOrder) {
-                    const pos = active.findIndex(o => o.userId === currentUser.uid) + 1;
-                    showStatus(pos, myOrder.status);
-                }
-            });
-        };
-
-        const showStatus = (pos, status) => {
-            document.getElementById('main-view').classList.add('hidden');
-            document.getElementById('status-view').classList.remove('hidden');
-            document.getElementById('queue-pos').innerText = pos;
-        };
-
-        window.onload = initApp;
-    </script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap');
-        body { font-family: 'Cairo', sans-serif; }
-    </style>
+    <title>Developer Hub | مركز المطور</title>
+    <link rel="stylesheet" href="style.css">
 </head>
-<body class="bg-slate-950 text-white min-h-screen">
-    <nav class="border-b border-white/5 p-6 bg-slate-900/50 backdrop-blur-lg sticky top-0 z-50">
-        <div class="max-w-6xl mx-auto flex justify-between items-center">
-            <h1 class="text-2xl font-black text-red-600">SCOOP OPBR</h1>
-            <div class="bg-red-600/10 text-red-500 px-4 py-1 rounded-full text-xs font-bold border border-red-500/20">أسرع تطوير في مصر</div>
-        </div>
-    </nav>
 
-    <main class="max-w-6xl mx-auto p-6" id="main-view">
-        <header class="py-16 text-center space-y-4">
-            <h2 class="text-5xl font-black">حول شخصياتك إلى <span class="text-red-600">أسطورة</span></h2>
-            <p class="text-slate-400">اختر الشخصيات وادفع عبر فودافون كاش لتبدأ التطوير فوراً</p>
-        </header>
+<body>
 
-        <div class="grid lg:grid-cols-3 gap-10">
-            <div class="lg:col-span-2">
-                <div id="char-grid" class="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    <!-- Characters injected here -->
-                </div>
+    <header>
+        <h1>Developer Workspace</h1>
+        <p>مرحباً بك في لوحة تحكم مشاريعك الخاصة</p>
+    </header>
+
+    <main class="projects-grid">
+
+        <!-- Project 1: AI -->
+        <!-- Project 1: AI -->
+        <a href="AI.html" class="project-card">
+            <div class="card-image">
+                <img src="image/AI.png" alt="Manga AI">
             </div>
+            <div class="card-content">
+                <h2>Manga AI</h2>
+                <p>تلوين وترجمة المانجا باستخدام الذكاء الاصطناعي بدقة عالية.</p>
+                <span class="badge">Live</span>
+            </div>
+        </a>
 
-            <aside class="space-y-6">
-                <div class="bg-slate-900 p-8 rounded-[2.5rem] border border-white/10 sticky top-28">
-                    <h3 class="text-xl font-black mb-6">ملخص الطلب</h3>
-                    <div class="flex justify-between items-center py-4 border-t border-white/5">
-                        <span class="font-bold">الإجمالي</span>
-                        <span class="text-3xl font-black"><span id="total-price">0</span> ج.م</span>
-                    </div>
-                    <div class="space-y-4">
-                        <input type="tel" id="phone-input" oninput="updateSummary()" placeholder="رقم فودافون كاش المرسل" 
-                               class="w-full bg-slate-950 border border-white/10 p-4 rounded-2xl outline-none focus:ring-2 focus:ring-red-600">
-                        <button id="order-btn" onclick="submitOrder()" disabled 
-                                class="w-full bg-red-600 hover:bg-red-700 disabled:opacity-50 py-4 rounded-2xl font-black transition-all">
-                            تأكيد الطلب والدخول للطابور
-                        </button>
-                    </div>
-                </div>
-            </aside>
-        </div>
+        <!-- Project 2: GS MANGA -->
+        <!-- Project 2: GS MANGA -->
+        <a href="GS MANGA.html" class="project-card">
+            <div class="card-image">
+                <img src="image/GS MANGA.png" alt="GS MANGA">
+            </div>
+            <div class="card-content">
+                <h2>GS MANGA</h2>
+                <p>البوابة الرسمية لقراءة المانجا المترجمة والحصرية.</p>
+                <span class="badge">Portal</span>
+            </div>
+        </a>
+
+        <!-- Project 3: TEAM GS -->
+        <!-- Project 3: TEAM GS -->
+        <a href="TEAM GS.html" class="project-card">
+            <div class="card-image">
+                <img src="image/TEAM GS.png" alt="TEAM GS">
+            </div>
+            <div class="card-content">
+                <h2>TEAM GS</h2>
+                <p>مركز إدارة الفريق والموارد التقنية لـ Team GS.</p>
+                <span class="badge">Admin</span>
+            </div>
+        </a>
+
     </main>
 
-    <!-- Status View -->
-    <div id="status-view" class="hidden max-w-2xl mx-auto text-center py-20 space-y-10">
-        <div class="relative inline-block">
-            <div class="w-48 h-48 rounded-full border-8 border-red-600/20 border-t-red-600 animate-spin mx-auto"></div>
-            <div class="absolute inset-0 flex flex-col items-center justify-center">
-                <span class="text-xs font-bold text-slate-500">ترتيبك</span>
-                <span id="queue-pos" class="text-6xl font-black">1</span>
-            </div>
+    <section class="social-section">
+        <h2>Connect With Me</h2>
+        <div class="social-grid">
+            <a href="https://twitch.tv/3bdovip" target="_blank" class="social-card twitch">
+                <img src="assets/twitch-banner.png" alt="Twitch">
+                <span>Twitch</span>
+            </a>
+            <a href="https://tiktok.com/@3bod_gaming" target="_blank" class="social-card tiktok">
+                <img src="assets/tiktok-banner.png" alt="TikTok">
+                <span>TikTok</span>
+            </a>
+            <a href="https://www.youtube.com/@3bod-gaming" target="_blank" class="social-card youtube">
+                <img src="assets/youtube-banner.png" alt="YouTube">
+                <span>YouTube</span>
+            </a>
+            <a href="https://discord.gg/D3XW6xauRU" target="_blank" class="social-card discord">
+                <img src="assets/discord-banner.png" alt="Discord">
+                <span>Discord</span>
+            </a>
         </div>
-        <h2 class="text-3xl font-black">طلبك في قيد التنفيذ!</h2>
-        <p class="text-slate-400">سيتم إخطارك هنا فور اكتمال عملية التطوير.</p>
-    </div>
+    </section>
+
+    <footer style="margin-top: auto; padding-top: 6rem;">
+        <a href="#" class="github-link">
+            <span>&copy; 2026 Developed by GS Team</span>
+        </a>
+    </footer>
+
 </body>
+
 </html>
